@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+.local-data/
+test-results/
+playwright-report/
+*.log
+*.local
+*.tsbuildinfo
+.DS_Store

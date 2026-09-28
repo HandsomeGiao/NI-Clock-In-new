@@ -1,0 +1,38 @@
+[package]
+name = "ni-clock-in"
+version = "2.0.0"
+description = "NI 考勤工作台"
+authors = ["NI"]
+edition = "2021"
+rust-version = "1.85"
+default-run = "ni-clock-in"
+
+[lib]
+name = "ni_clock_in_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
+rust_xlsxwriter = "0.94"
+calamine = "0.35"
+csv = "1.4"
+encoding_rs = "0.8"
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant", "Win32_System_LibraryLoader"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
