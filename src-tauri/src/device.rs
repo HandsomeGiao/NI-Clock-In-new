@@ -81,7 +81,6 @@ impl DeviceWorker {
     }
 }
 
-#[cfg(windows)]
 mod native {
     use super::*;
     use chrono::NaiveDate;
@@ -555,36 +554,6 @@ mod native {
             }
             assert!(sdk_boolean(&VARIANT::default()).is_err());
             assert!(sdk_boolean(&VARIANT::from(1i32)).is_err());
-        }
-    }
-}
-
-#[cfg(not(windows))]
-mod native {
-    use super::*;
-    pub struct Session;
-    impl Session {
-        pub fn new(_: PathBuf) -> Self {
-            Self
-        }
-        pub fn status(&mut self) -> DeviceStatus {
-            DeviceStatus {
-                error: Some("中控设备 SDK 仅支持 Windows x64；其他本地管理功能可用".into()),
-                ..DeviceStatus::default()
-            }
-        }
-        pub fn connect(&mut self, _: &ConnectionSettings) -> AppResult<()> {
-            Err("设备通信需要 Windows x64".into())
-        }
-        pub fn disconnect(&mut self) -> AppResult<()> {
-            Ok(())
-        }
-        pub fn download(
-            &mut self,
-            _: &DateRange,
-            _: &dyn Fn(Progress),
-        ) -> AppResult<Vec<LogRecord>> {
-            Err("设备通信需要 Windows x64".into())
         }
     }
 }
