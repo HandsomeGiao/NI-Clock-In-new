@@ -1,6 +1,6 @@
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { Bootstrap, StatisticsResult } from '../src/types';
 
@@ -21,7 +21,7 @@ test.describe.serial('真实 Tauri 桌面流程', () => {
     directory = await mkdtemp(resolve('.local-data/e2e-'));
     app = spawn(resolve(process.env.NI_CLOCK_EXECUTABLE ?? 'src-tauri/target/debug/ni-clock-in.exe'), [], {
       cwd: resolve('.'), windowsHide: true, stdio: 'ignore',
-      env: { ...process.env, NI_CLOCK_DATA_DIR: join(directory, 'data'), NI_CLOCK_LEGACY_DIR: join(directory, 'no-legacy'), WEBVIEW2_USER_DATA_FOLDER: join(directory, 'webview'), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
+      env: { ...process.env, NI_CLOCK_DATA_DIR: join(directory, 'data'), NI_CLOCK_LEGACY_DIR: join(directory, 'no-legacy'), WEBVIEW2_USER_DATA_FOLDER: undefined, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
     });
     app.on('error', error => errors.push(error.message));
     await expect.poll(async () => { try { return (await fetch(`http://127.0.0.1:${port}/json/version`)).ok; } catch { return false; } }, { timeout: 30_000 }).toBe(true);
@@ -30,6 +30,8 @@ test.describe.serial('真实 Tauri 桌面流程', () => {
     page = context.pages()[0] ?? await context.waitForEvent('page');
     page.on('pageerror', error => errors.push(error.message));
     await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+    expect(await invoke<string>('data_directory')).toBe(join(directory, 'data'));
+    expect((await stat(join(directory, 'data', 'webview'))).isDirectory()).toBe(true);
   });
   test.afterAll(async () => {
     await browser?.close();
@@ -73,9 +75,10 @@ test.describe.serial('真实 Tauri 桌面流程', () => {
     const statistics = await invoke<StatisticsResult>('calculate', { range, departmentIds: [] });
     expect(statistics.rows[0]).toMatchObject({ expectedDays: 0.5, actualDays: 0.5, lateCount: 0, absentDays: 0, attendanceHours: 3 });
     expect((await invoke<Bootstrap>('bootstrap')).reviewCount).toBe(1);
-    const output = join(directory, 'week.xlsx');
+    const output = join(directory, 'data', 'week.xlsx');
     await invoke('export_statistics', { path: output, range, departmentIds: [] });
     expect((await readFile(output)).subarray(0, 2).toString()).toBe('PK');
+    await expect(invoke('export_statistics', { path: join(directory, 'outside.xlsx'), range, departmentIds: [] })).rejects.toThrow('请将导出文件保存到程序目录');
     await page.screenshot({ path: join(directory, 'attendance.png'), fullPage: true });
     await page.reload();
     const persisted = await invoke<StatisticsResult>('calculate', { range, departmentIds: [] });

@@ -1,12 +1,12 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-Build the Windows 11 x64 application and NSIS installer.
+Build the Windows 11 x64 application as an NSIS installer or portable folder.
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 #>
 [CmdletBinding()]
-param()
+param([switch]$Portable)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -47,12 +47,39 @@ try {
         throw 'Missing bundled SDK. Restore src-tauri/resources/sdk from the repository.'
     }
 
+    $portableDirectory = Join-Path $PSScriptRoot 'portable'
+    if ($Portable -and (Get-Process -Name 'ni-clock-in' -ErrorAction SilentlyContinue)) {
+        throw 'Close NI Clock In before updating the portable folder.'
+    }
     Write-Host '[1/2] Installing locked frontend dependencies...'
     Invoke-BuildStep 'npm.cmd' @('ci', '--include=dev')
-    Write-Host '[2/2] Building frontend, Rust application and Windows installer...'
-    Invoke-BuildStep 'npm.cmd' @('run', 'bundle', '--', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked')
-    Write-Host 'Build completed. Default output: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/'
-    Write-Host 'If CARGO_TARGET_DIR is configured, use the output path printed by Tauri above.'
+    if ($Portable) {
+        Write-Host '[2/2] Building portable application (no installer)...'
+        Invoke-BuildStep 'npm.cmd' @('run', 'bundle', '--', '--target', 'x86_64-pc-windows-msvc', '--no-bundle', '--', '--locked')
+        $metadataJson = & cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --format-version 1 --locked
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot locate Cargo output directory.' }
+        $metadata = $metadataJson | ConvertFrom-Json
+        $releaseDirectory = Join-Path $metadata.target_directory 'x86_64-pc-windows-msvc/release'
+        $executable = Join-Path $releaseDirectory 'ni-clock-in.exe'
+        if (-not (Test-Path -LiteralPath $executable)) { throw 'Compiled executable is missing.' }
+        if (Get-Process -Name 'ni-clock-in' -ErrorAction SilentlyContinue) {
+            throw 'Close NI Clock In before updating the portable folder.'
+        }
+        $sdkDirectory = Join-Path $portableDirectory 'resources/sdk'
+        New-Item -ItemType Directory -Path $sdkDirectory -Force | Out-Null
+        # Copy only application files. Never delete or replace databases, backups or reports.
+        Copy-Item -LiteralPath $executable -Destination $portableDirectory -Force
+        Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src-tauri/resources/sdk') -Filter '*.dll' |
+            Copy-Item -Destination $sdkDirectory -Force
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'portable-readme.txt') -Destination (Join-Path $portableDirectory 'README.txt') -Force
+        Write-Host "Portable build completed: $portableDirectory"
+        Write-Host 'Existing attendance data, reports and backups have been preserved.'
+    } else {
+        Write-Host '[2/2] Building frontend, Rust application and Windows installer...'
+        Invoke-BuildStep 'npm.cmd' @('run', 'bundle', '--', '--target', 'x86_64-pc-windows-msvc', '--bundles', 'nsis', '--', '--locked')
+        Write-Host 'Build completed. Default output: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/'
+        Write-Host 'If CARGO_TARGET_DIR is configured, use the output path printed by Tauri above.'
+    }
 }
 catch {
     [Console]::Error.WriteLine("Build failed: $($_.Exception.Message)")

@@ -3,6 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 .local-data/
+portable/
 test-results/
 playwright-report/
 *.log

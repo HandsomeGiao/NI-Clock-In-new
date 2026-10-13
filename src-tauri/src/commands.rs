@@ -32,6 +32,27 @@ fn extension(path: &str, expected: &str) -> AppResult<()> {
         Err(format!("文件名必须以 .{expected} 结尾"))
     }
 }
+fn validate_export_path(directory: &Path, path: &str) -> AppResult<()> {
+    let path = Path::new(path);
+    let directory = directory.canonicalize().map_err(|e| e.to_string())?;
+    let parent = path.parent().and_then(|p| p.canonicalize().ok());
+    if !path.is_absolute() || parent.as_ref() != Some(&directory) {
+        return Err(format!(
+            "请将导出文件保存到程序目录：{}",
+            directory.display()
+        ));
+    }
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if !metadata.is_file() {
+            return Err("导出目标必须是普通文件，不能是目录或链接".into());
+        }
+    }
+    Ok(())
+}
+#[tauri::command]
+pub async fn data_directory(app: AppHandle) -> AppResult<String> {
+    with_store(app, |s| Ok(s.directory.to_string_lossy().into_owned())).await
+}
 #[tauri::command]
 pub async fn bootstrap(app: AppHandle) -> AppResult<Bootstrap> {
     with_store(app, |s| s.bootstrap()).await
@@ -98,6 +119,7 @@ pub async fn import_logs(app: AppHandle, path: String) -> AppResult<ImportSummar
 pub async fn export_logs(app: AppHandle, path: String, query: LogQuery) -> AppResult<usize> {
     extension(&path, "csv")?;
     with_store(app, move |s| {
+        validate_export_path(&s.directory, &path)?;
         let logs = s.log_views(&query)?;
         if logs.is_empty() {
             return Err("当前筛选范围没有日志".into());
@@ -116,6 +138,7 @@ pub async fn export_statistics(
 ) -> AppResult<usize> {
     extension(&path, "xlsx")?;
     with_store(app, move |s| {
+        validate_export_path(&s.directory, &path)?;
         let result = s.calculate(&range, &department_ids)?;
         exchange::export_statistics(
             Path::new(&path),
@@ -129,9 +152,10 @@ pub async fn export_statistics(
     .await
 }
 #[tauri::command]
-pub async fn merge_monthly(paths: Vec<String>, path: String) -> AppResult<usize> {
+pub async fn merge_monthly(app: AppHandle, paths: Vec<String>, path: String) -> AppResult<usize> {
     extension(&path, "xlsx")?;
-    tauri::async_runtime::spawn_blocking(move || {
+    with_store(app, move |s| {
+        validate_export_path(&s.directory, &path)?;
         let output = Path::new(&path);
         if let Ok(output) = std::fs::canonicalize(output) {
             if paths
@@ -147,12 +171,12 @@ pub async fn merge_monthly(paths: Vec<String>, path: String) -> AppResult<usize>
         Ok(rows.len())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn export_backup(app: AppHandle, path: String) -> AppResult<()> {
     extension(&path, "json")?;
     with_store(app, move |s| {
+        validate_export_path(&s.directory, &path)?;
         exchange::write_json(Path::new(&path), &s.backup()?)
     })
     .await
@@ -201,4 +225,32 @@ pub async fn download_logs(
         })
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_export_path;
+
+    #[test]
+    fn exports_stay_in_the_program_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let output = root.path().join("考勤报表.xlsx");
+        assert!(validate_export_path(root.path(), output.to_str().unwrap()).is_ok());
+        std::fs::write(&output, b"existing report").unwrap();
+        assert!(validate_export_path(root.path(), output.to_str().unwrap()).is_ok());
+        assert!(validate_export_path(
+            root.path(),
+            outside.path().join("report.xlsx").to_str().unwrap()
+        )
+        .is_err());
+        assert!(validate_export_path(root.path(), "report.xlsx").is_err());
+        let subdirectory = root.path().join("nested");
+        std::fs::create_dir(&subdirectory).unwrap();
+        assert!(validate_export_path(
+            root.path(),
+            subdirectory.join("report.xlsx").to_str().unwrap()
+        )
+        .is_err());
+    }
 }

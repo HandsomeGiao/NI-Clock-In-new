@@ -57,6 +57,8 @@ NI Clock In 是一款本地考勤管理桌面应用，用于整理考勤机打�
 
 ## 开发与手动构建
 
+免安装版：双击根目录 `build-portable.cmd`，或运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Portable`。脚本安装依赖并编译正式版，生成根目录下的 `portable/` 文件夹，不生成安装包。它会自动识别 Cargo 输出目录（包括 `CARGO_TARGET_DIR`），复制 EXE、SDK 和使用说明。构建前请关闭应用；重复构建保留已有数据库、报表、备份和缓存。初次生成的文件夹不自动带入旧版数据。编译环境要求与一键编译相同。
+
 ```powershell
 # 首次安装项目依赖
 npm ci --include=dev
@@ -97,9 +99,25 @@ npm run test:e2e
 3. 选择日期范围下载或导入记录，计算统计，按需修正异常并导出 Excel。
 4. 在“设置 → 数据与备份”中导出完整备份，或导入旧版项目/data 文件夹。
 
-数据库文件名为 `attendance.sqlite3`，默认位于 Tauri 的应用数据目录，Windows 通常是 `%APPDATA%\com.ni.clockin\`；以设置页面显示的“当前数据目录”为准。恢复备份或导入旧版数据前，会在数据目录保存 `before-import-*.json` 自动备份。
+正式版将数据保存在 `ni-clock-in.exe` 所在目录，不再使用 `%APPDATA%\com.ni.clockin\`，也不受启动快捷方式的工作目录影响。以设置页面显示的“当前数据目录”为准。程序目录必须可写，请安装或解压到自己有写入权限的位置。
 
-开发时可指定独立数据目录，避免使用日常数据：
+```text
+程序目录/
+  ni-clock-in.exe
+  attendance.sqlite3          人员、部门、班次、设备配置、打卡及人工修正
+  attendance.sqlite3-wal      SQLite 运行时辅助文件（可能存在）
+  attendance.sqlite3-shm      SQLite 运行时辅助文件（可能存在）
+  before-import-*.json        恢复备份或导入旧版前的自动备份
+  *.xlsx / *.csv / *.json     手动导出的报表、记录和完整备份
+  webview/                   界面运行缓存
+  resources/sdk/             随附设备通信 DLL
+```
+
+导出对话框默认打开程序目录，导出文件必须保存在该目录。外部导入文件仍可从任意位置选择，导入后的有效数据写入本地数据库，无需依赖原文件。程序自身管理的数据、缓存和 SDK 均在程序目录内；Windows 的 WebView2、VC++ 等系统运行库仍由系统管理。
+
+升级旧版前，请先在旧程序中导出完整 JSON 备份，再在新版中恢复。原 AppData 数据不会被自动移动或删除。迁移新版时，关闭程序后复制完整程序文件夹，不能只复制 EXE 或运行中单独复制数据库。
+
+仅开发/调试版本允许通过 `NI_CLOCK_DATA_DIR` 指定独立数据目录（缓存也在其下），正式打包版本忽略此变量：
 
 ```powershell
 # Windows PowerShell
