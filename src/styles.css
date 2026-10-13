@@ -1240,6 +1240,52 @@ tbody tr:hover {
 .shift-list-item:hover {
   background: #f3f7ed;
 }
+.bulk-shift-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.bulk-shift-list {
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.bulk-shift-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 15px;
+  cursor: pointer;
+}
+.bulk-shift-item + .bulk-shift-item {
+  border-top: 1px solid var(--border);
+}
+.bulk-shift-item.selected {
+  background: #edf4e6;
+}
+.bulk-shift-item.unavailable {
+  background: #f7f8f5;
+  color: #829287;
+  cursor: not-allowed;
+}
+.bulk-shift-item > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bulk-shift-item strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.bulk-shift-item small {
+  display: block;
+  font-size: 11px;
+  color: #829287;
+  margin-top: 5px;
+}
 .shift-editor-header {
   padding: 22px 24px;
   display: flex;

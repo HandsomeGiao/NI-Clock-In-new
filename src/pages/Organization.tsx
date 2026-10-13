@@ -681,9 +681,22 @@ export function PeoplePage() {
 
 const dayNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export function ShiftsPage() {
-  const { config, saveConfig, run, confirm, notify } = useApp();
+  const { config, saveConfig, run, confirm, notify, busy } = useApp();
   const [draft, setDraft] = useState<Shift | null>(() =>
     config.shifts[0] ? structuredClone(config.shifts[0]) : null,
+  );
+  const [bulkDelete, setBulkDelete] = useState(false);
+  const [selectedShiftIds, setSelectedShiftIds] = useState<string[]>([]);
+  const shiftUsers = new Map<string, number>();
+  for (const person of config.people) {
+    if (person.shiftId)
+      shiftUsers.set(person.shiftId, (shiftUsers.get(person.shiftId) ?? 0) + 1);
+  }
+  const removableShifts = config.shifts.filter(
+    (shift) => !shiftUsers.has(shift.id),
+  );
+  const selectedShifts = removableShifts.filter((shift) =>
+    selectedShiftIds.includes(shift.id),
   );
   const original = config.shifts.find((s) => s.id === draft?.id);
   const dirty = !!draft && JSON.stringify(draft) !== JSON.stringify(original);
@@ -738,6 +751,28 @@ export function ShiftsPage() {
       },
     );
   }
+  function removeSelected() {
+    if (busy || selectedShifts.length === 0) return;
+    const ids = new Set(selectedShifts.map((shift) => shift.id));
+    const deletingDraft = !!draft && ids.has(draft.id);
+    confirm(
+      `删除所选的 ${ids.size} 个班次`,
+      `将删除：${selectedShifts.map((shift) => `「${shift.name}」`).join("、")}。删除后无法撤销。${
+        deletingDraft && dirty ? "当前班次尚未保存的修改也会丢弃。" : ""
+      }`,
+      async () => {
+        const saved = await saveConfig({
+          ...config,
+          shifts: config.shifts.filter((shift) => !ids.has(shift.id)),
+        });
+        if (deletingDraft)
+          setDraft(saved.shifts[0] ? structuredClone(saved.shifts[0]) : null);
+        setBulkDelete(false);
+        setSelectedShiftIds([]);
+        notify(`已删除 ${ids.size} 个班次。`);
+      },
+    );
+  }
   const hours =
     draft?.days.reduce((total, d) => {
       const minutes = (time: string) => {
@@ -764,10 +799,23 @@ export function ShiftsPage() {
           </h2>
           <p>一个班次，一周七天，每天两个考勤时段。</p>
         </div>
-        <button className="button primary" onClick={add}>
-          <Plus size={16} />
-          新建班次
-        </button>
+        <div className="toolbar-actions">
+          <button
+            className="button"
+            disabled={!!busy || config.shifts.length === 0}
+            onClick={() => {
+              setSelectedShiftIds([]);
+              setBulkDelete(true);
+            }}
+          >
+            <Trash2 size={16} />
+            批量删除班次
+          </button>
+          <button className="button primary" disabled={!!busy} onClick={add}>
+            <Plus size={16} />
+            新建班次
+          </button>
+        </div>
       </div>
       <div className="shift-layout">
         <section className="panel shift-list">
@@ -968,6 +1016,97 @@ export function ShiftsPage() {
         <Info size={14} />
         打卡识别窗口在「规则与数据」统一设置。调整班次时，请同时确认打卡窗口涵盖新时间。
       </div>
+      {bulkDelete && (
+        <Modal
+          title="批量删除班次"
+          subtitle="选择要删除的班次。已被人员使用的班次，请先在人员页解除分配。"
+          onClose={() => !busy && setBulkDelete(false)}
+        >
+          <div className="bulk-shift-summary">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={
+                  removableShifts.length > 0 &&
+                  selectedShifts.length === removableShifts.length
+                }
+                ref={(input) => {
+                  if (input)
+                    input.indeterminate =
+                      selectedShifts.length > 0 &&
+                      selectedShifts.length < removableShifts.length;
+                }}
+                disabled={!!busy || removableShifts.length === 0}
+                onChange={(e) =>
+                  setSelectedShiftIds(
+                    e.target.checked
+                      ? removableShifts.map((shift) => shift.id)
+                      : [],
+                  )
+                }
+              />
+              全选可删除班次
+            </label>
+            <span className="subtle" aria-live="polite">
+              已选 {selectedShifts.length} / {removableShifts.length}
+            </span>
+          </div>
+          <div className="bulk-shift-list">
+            {config.shifts.map((shift) => {
+              const assigned = shiftUsers.get(shift.id) ?? 0;
+              const selected = !assigned && selectedShiftIds.includes(shift.id);
+              return (
+                <label
+                  key={shift.id}
+                  className={`bulk-shift-item ${assigned ? "unavailable" : ""} ${selected ? "selected" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`选择班次「${shift.name}」`}
+                    checked={selected}
+                    disabled={!!busy || assigned > 0}
+                    onChange={(e) =>
+                      setSelectedShiftIds((ids) =>
+                        e.target.checked
+                          ? [...ids, shift.id]
+                          : ids.filter((id) => id !== shift.id),
+                      )
+                    }
+                  />
+                  <span>
+                    <strong>{shift.name}</strong>
+                    <small>
+                      {assigned
+                        ? `${assigned} 人使用 · 需先解除分配`
+                        : "未分配人员 · 可删除"}
+                    </small>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          {removableShifts.length === 0 && (
+            <p className="subtle">所有班次均已分配人员，暂无可删除的班次。</p>
+          )}
+          <div className="modal-actions">
+            <button
+              className="button"
+              disabled={!!busy}
+              onClick={() => setBulkDelete(false)}
+            >
+              取消
+            </button>
+            <button
+              className="button danger"
+              disabled={!!busy || selectedShifts.length === 0}
+              onClick={removeSelected}
+            >
+              <Trash2 size={16} />
+              删除所选班次（{selectedShifts.length}）
+            </button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

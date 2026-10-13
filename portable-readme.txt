@@ -4,7 +4,8 @@ NI 考勤工作台 — 免安装版
 resources/sdk 中的 DLL 为设备通信组件，请保留完整目录结构。
 
 人员配置、考勤和人工修正保存在 attendance.sqlite3 中；
-导出报表和备份保存在本目录；界面缓存位于 webview 子目录。
+导入前自动备份保存在本目录，界面缓存位于 webview 子目录。
+导出的 Excel 报表、CSV 和完整 JSON 备份可自行选择保存位置。
 迁移前请关闭程序，然后复制整个文件夹。
 
 重复运行 build-portable.cmd 仅更新程序及 SDK，不会清除现有数据。

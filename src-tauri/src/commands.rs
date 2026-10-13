@@ -32,15 +32,10 @@ fn extension(path: &str, expected: &str) -> AppResult<()> {
         Err(format!("文件名必须以 .{expected} 结尾"))
     }
 }
-fn validate_export_path(directory: &Path, path: &str) -> AppResult<()> {
+fn validate_export_path(path: &str) -> AppResult<()> {
     let path = Path::new(path);
-    let directory = directory.canonicalize().map_err(|e| e.to_string())?;
-    let parent = path.parent().and_then(|p| p.canonicalize().ok());
-    if !path.is_absolute() || parent.as_ref() != Some(&directory) {
-        return Err(format!(
-            "请将导出文件保存到程序目录：{}",
-            directory.display()
-        ));
+    if !path.is_absolute() {
+        return Err("请选择完整的导出文件路径".into());
     }
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
         if !metadata.is_file() {
@@ -119,7 +114,7 @@ pub async fn import_logs(app: AppHandle, path: String) -> AppResult<ImportSummar
 pub async fn export_logs(app: AppHandle, path: String, query: LogQuery) -> AppResult<usize> {
     extension(&path, "csv")?;
     with_store(app, move |s| {
-        validate_export_path(&s.directory, &path)?;
+        validate_export_path(&path)?;
         let logs = s.log_views(&query)?;
         if logs.is_empty() {
             return Err("当前筛选范围没有日志".into());
@@ -138,7 +133,7 @@ pub async fn export_statistics(
 ) -> AppResult<usize> {
     extension(&path, "xlsx")?;
     with_store(app, move |s| {
-        validate_export_path(&s.directory, &path)?;
+        validate_export_path(&path)?;
         let result = s.calculate(&range, &department_ids)?;
         exchange::export_statistics(
             Path::new(&path),
@@ -152,10 +147,10 @@ pub async fn export_statistics(
     .await
 }
 #[tauri::command]
-pub async fn merge_monthly(app: AppHandle, paths: Vec<String>, path: String) -> AppResult<usize> {
+pub async fn merge_monthly(paths: Vec<String>, path: String) -> AppResult<usize> {
     extension(&path, "xlsx")?;
-    with_store(app, move |s| {
-        validate_export_path(&s.directory, &path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        validate_export_path(&path)?;
         let output = Path::new(&path);
         if let Ok(output) = std::fs::canonicalize(output) {
             if paths
@@ -171,12 +166,13 @@ pub async fn merge_monthly(app: AppHandle, paths: Vec<String>, path: String) -> 
         Ok(rows.len())
     })
     .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn export_backup(app: AppHandle, path: String) -> AppResult<()> {
     extension(&path, "json")?;
     with_store(app, move |s| {
-        validate_export_path(&s.directory, &path)?;
+        validate_export_path(&path)?;
         exchange::write_json(Path::new(&path), &s.backup()?)
     })
     .await
@@ -232,25 +228,15 @@ mod tests {
     use super::validate_export_path;
 
     #[test]
-    fn exports_stay_in_the_program_directory() {
-        let root = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-        let output = root.path().join("考勤报表.xlsx");
-        assert!(validate_export_path(root.path(), output.to_str().unwrap()).is_ok());
+    fn exports_accept_arbitrary_directories_and_existing_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let nested = directory.path().join("外部导出目录");
+        std::fs::create_dir(&nested).unwrap();
+        let output = nested.join("考勤报表.xlsx");
+        assert!(validate_export_path(output.to_str().unwrap()).is_ok());
         std::fs::write(&output, b"existing report").unwrap();
-        assert!(validate_export_path(root.path(), output.to_str().unwrap()).is_ok());
-        assert!(validate_export_path(
-            root.path(),
-            outside.path().join("report.xlsx").to_str().unwrap()
-        )
-        .is_err());
-        assert!(validate_export_path(root.path(), "report.xlsx").is_err());
-        let subdirectory = root.path().join("nested");
-        std::fs::create_dir(&subdirectory).unwrap();
-        assert!(validate_export_path(
-            root.path(),
-            subdirectory.join("report.xlsx").to_str().unwrap()
-        )
-        .is_err());
+        assert!(validate_export_path(output.to_str().unwrap()).is_ok());
+        assert!(validate_export_path(nested.to_str().unwrap()).is_err());
+        assert!(validate_export_path("report.xlsx").is_err());
     }
 }

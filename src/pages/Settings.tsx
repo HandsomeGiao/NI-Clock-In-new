@@ -565,7 +565,10 @@ export function SettingsPage() {
             当前数据目录
           </span>
           <code>{boot.dataDirectory}</code>
-          <small>数据库、导出报表和备份保存在程序目录，界面缓存位于其 webview 子目录。迁移时请关闭程序后复制完整文件夹。</small>
+          <small>
+            数据库和导入前自动备份保存在程序目录，界面缓存位于其 webview
+            子目录。导出报表、CSV 和完整备份可自行选择保存位置。
+          </small>
         </div>
       </section>
       <section className="panel reset-panel">

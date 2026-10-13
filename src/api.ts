@@ -1,6 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { join } from "@tauri-apps/api/path";
 export async function call<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -26,10 +25,9 @@ export async function chooseDirectory() {
   });
 }
 export async function saveFile(name: string, extension: string) {
-  const directory = await call<string>("data_directory");
   return save({
-    title: "保存到程序目录",
-    defaultPath: await join(directory, name),
+    title: "选择导出文件保存位置",
+    defaultPath: name,
     filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
   });
 }
