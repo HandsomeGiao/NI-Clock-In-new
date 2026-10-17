@@ -5,7 +5,10 @@ pub mod exchange;
 pub mod models;
 pub mod store;
 
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 use tauri::Manager;
 
 pub fn run() {
@@ -37,8 +40,18 @@ pub fn run() {
             app.manage(Mutex::new(store));
             let resource_dir = app.path().resource_dir()?;
             app.manage(device::DeviceWorker::new(resource_dir));
+            let first_load = AtomicBool::new(true);
             tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
                 .data_directory(data_dir.join("webview"))
+                .on_page_load(move |window, payload| {
+                    // Show the static splash once HTML is ready, before waiting for React/data.
+                    // Subsequent reloads must not restore a window the user has minimized.
+                    if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                        && first_load.swap(false, Ordering::Relaxed)
+                    {
+                        let _ = window.show();
+                    }
+                })
                 .build()?;
             Ok(())
         })

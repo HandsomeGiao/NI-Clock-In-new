@@ -6,9 +6,278 @@
     <meta name="theme-color" content="#176a55" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <title>NI 考勤 · 工作台</title>
+    <!-- Keep the first frame independent of JavaScript, fonts and external CSS. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #f5f7f6;
+      }
+      .startup-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        overflow: auto;
+        padding: 32px;
+        box-sizing: border-box;
+        color: #25362f;
+        background: #f5f7f6;
+        background-image: radial-gradient(
+          ellipse at 50% 38%,
+          #e2eee5 0,
+          transparent 60%
+        );
+        font-family:
+          "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei", sans-serif;
+        text-align: center;
+        transition: opacity 180ms ease;
+      }
+      .startup-screen.is-leaving {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .startup-content {
+        width: min(100%, 440px);
+        padding: 44px 0;
+      }
+      .startup-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 140px;
+        height: 140px;
+        margin: 0 auto 32px;
+      }
+      .startup-mark::before,
+      .startup-mark::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border: 1px solid #176a5515;
+        border-radius: 50%;
+      }
+      .startup-mark::after {
+        inset: 11px;
+        border-color: #176a5520;
+      }
+      .startup-logo {
+        width: 82px;
+        height: 82px;
+        filter: drop-shadow(0 10px 16px #176a551a);
+      }
+      .startup-orbit {
+        position: absolute;
+        inset: 0;
+        animation: startup-orbit 6s linear infinite;
+      }
+      .startup-orbit::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        left: calc(50% - 4px);
+        width: 8px;
+        height: 8px;
+        background: #6c9b77;
+        border-radius: 50%;
+        box-shadow: 0 0 0 5px #6c9b7710;
+      }
+      .startup-eyebrow {
+        margin: 0 0 13px;
+        color: #597366;
+        font-size: 10px;
+        letter-spacing: 3px;
+      }
+      .startup-title {
+        margin: 0;
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: 2px;
+      }
+      .startup-tagline {
+        margin: 13px 0 35px;
+        color: #6e8076;
+        font-size: 13px;
+        letter-spacing: 1px;
+      }
+      .startup-track {
+        width: 168px;
+        height: 3px;
+        margin: 0 auto 18px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: #dce7df;
+      }
+      .startup-track::after {
+        content: "";
+        display: block;
+        width: 50%;
+        height: 100%;
+        border-radius: inherit;
+        background: #43866a;
+        animation: startup-progress 1.6s ease-in-out infinite;
+      }
+      .startup-message {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.8;
+        color: #597366;
+        overflow-wrap: anywhere;
+      }
+      .startup-recovery {
+        margin-top: 20px;
+      }
+      .startup-recovery[hidden] {
+        display: none;
+      }
+      .startup-hint {
+        margin: 0 0 12px;
+        color: #6e8076;
+        font-size: 12px;
+        line-height: 1.8;
+      }
+      .startup-retry {
+        display: inline-block;
+        padding: 9px 20px;
+        border: 1px solid #c5d6ca;
+        border-radius: 8px;
+        background: #ffffffaa;
+        color: #176a55;
+        font-size: 12px;
+        text-decoration: none;
+      }
+      .startup-retry:hover {
+        background: #fff;
+        border-color: #70a58b;
+      }
+      .startup-retry:focus-visible {
+        outline: 3px solid #70aa9277;
+        outline-offset: 3px;
+      }
+      .startup-footer {
+        position: absolute;
+        bottom: 28px;
+        inset-inline: 20px;
+        color: #7a8b81;
+        font-size: 11px;
+        letter-spacing: 1px;
+      }
+      .startup-footer span {
+        margin: 0 9px;
+        color: #a2b4a8;
+      }
+      .startup-screen.has-error .startup-message {
+        color: #a84f46;
+      }
+      .startup-screen.has-error .startup-track {
+        display: none;
+      }
+      .startup-screen.has-error .startup-orbit {
+        animation: none;
+      }
+      @keyframes startup-orbit {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes startup-progress {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(300%);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .startup-screen {
+          transition: none;
+        }
+        .startup-orbit,
+        .startup-track::after {
+          animation: none;
+        }
+        .startup-track::after {
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+      @media (max-height: 560px) {
+        .startup-content {
+          padding: 8px 0 40px;
+        }
+        .startup-mark {
+          width: 100px;
+          height: 100px;
+          margin-bottom: 18px;
+        }
+        .startup-logo {
+          width: 64px;
+          height: 64px;
+        }
+        .startup-tagline {
+          margin-bottom: 22px;
+        }
+        .startup-footer {
+          bottom: 16px;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div
+      id="startup-screen"
+      class="startup-screen"
+      aria-labelledby="startup-title"
+    >
+      <div class="startup-content">
+        <div class="startup-mark" aria-hidden="true">
+          <span class="startup-orbit"></span>
+          <svg
+            class="startup-logo"
+            viewBox="0 0 256 256"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <rect x="8" y="8" width="240" height="240" rx="64" fill="#176a55" />
+            <path d="M64 170V86h21l49 62V86h22v84h-21l-49-62v62Z" fill="#fff" />
+            <circle cx="180" cy="70" r="34" fill="#d7f4bc" />
+            <path
+              d="M180 49v22l14 9"
+              fill="none"
+              stroke="#176a55"
+              stroke-width="9"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+        <p class="startup-eyebrow">NI / ATTENDANCE STUDIO</p>
+        <h1 id="startup-title" class="startup-title">NI 考勤工作台</h1>
+        <p class="startup-tagline">每一份出勤，都有迹可循。</p>
+        <div class="startup-track" aria-hidden="true"></div>
+        <p
+          id="startup-message"
+          class="startup-message"
+          role="status"
+          aria-live="polite"
+        >
+          正在打开本地工作台…
+        </p>
+        <div id="startup-recovery" class="startup-recovery" hidden>
+          <p id="startup-hint" class="startup-hint">
+            启动时间比平时稍长，请稍候，或尝试重新加载。
+          </p>
+          <a class="startup-retry" href="">重新加载</a>
+        </div>
+        <noscript
+          ><p class="startup-hint">
+            界面未能启动，请关闭后重新打开应用。
+          </p></noscript
+        >
+      </div>
+      <div class="startup-footer">本地存储<span>·</span>安心记录每一天</div>
+    </div>
+    <div id="root" inert></div>
+    <script type="module" src="/src/entry.ts"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { dismissStartup } from "./startup";
 import "./styles.css";
 
 class ErrorBoundary extends React.Component<
@@ -10,6 +11,9 @@ class ErrorBoundary extends React.Component<
   state = { error: null as string | null };
   static getDerivedStateFromError(error: Error) {
     return { error: error.message };
+  }
+  componentDidCatch() {
+    dismissStartup();
   }
   render() {
     return this.state.error ? (

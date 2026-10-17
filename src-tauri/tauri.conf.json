@@ -14,6 +14,8 @@
       {
         "label": "main",
         "create": false,
+        "visible": false,
+        "backgroundColor": "#f5f7f6",
         "title": "NI 考勤工作台",
         "width": 1440,
         "height": 940,

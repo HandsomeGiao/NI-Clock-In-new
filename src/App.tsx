@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   Activity,
@@ -20,11 +27,11 @@ import {
   X,
 } from "lucide-react";
 import { call, chooseDirectory } from "./api";
+import { loadInitialBootstrap } from "./bootstrap";
+import { dismissStartup, showStartupError } from "./startup";
 import { AppContext } from "./context";
-import { Modal } from "./components";
+import { Loading, Modal } from "./components";
 import { StatisticsPage, LogsPage } from "./pages/Attendance";
-import { PeoplePage, ShiftsPage } from "./pages/Organization";
-import { DevicePage, SettingsPage } from "./pages/Settings";
 import type {
   AppConfig,
   Bootstrap,
@@ -34,6 +41,25 @@ import type {
   Page,
   Progress,
 } from "./types";
+
+const PeoplePage = lazy(() =>
+  import("./pages/Organization").then((module) => ({
+    default: module.PeoplePage,
+  })),
+);
+const ShiftsPage = lazy(() =>
+  import("./pages/Organization").then((module) => ({
+    default: module.ShiftsPage,
+  })),
+);
+const DevicePage = lazy(() =>
+  import("./pages/Settings").then((module) => ({ default: module.DevicePage })),
+);
+const SettingsPage = lazy(() =>
+  import("./pages/Settings").then((module) => ({
+    default: module.SettingsPage,
+  })),
+);
 
 const navigation = [
   {
@@ -81,8 +107,7 @@ const offline: DeviceStatus = {
   error: null,
 };
 export default function App() {
-  const [boot, setBoot] = useState<Bootstrap | null>(null),
-    [startupError, setStartupError] = useState("");
+  const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [page, setPage] = useState<Page>("statistics");
   const [range, setRange] = useState<DateRange>({ startDate: "", endDate: "" });
   const [device, setDevice] = useState<DeviceStatus>(offline),
@@ -115,7 +140,7 @@ export default function App() {
   }, []);
   useEffect(() => {
     let active = true;
-    call<Bootstrap>("bootstrap")
+    loadInitialBootstrap()
       .then((next) => {
         if (active) {
           setBoot(next);
@@ -123,7 +148,7 @@ export default function App() {
         }
       })
       .catch((e) => {
-        if (active) setStartupError(String(e));
+        if (active) showStartupError(e);
       });
     call<DeviceStatus>("device_status")
       .then((status) => {
@@ -140,6 +165,9 @@ export default function App() {
       void unsubscribe.then((fn) => fn());
     };
   }, []);
+  useEffect(() => {
+    if (boot) dismissStartup();
+  }, [boot]);
   useEffect(() => {
     if (!toast || toast.error) return;
     const timer = setTimeout(() => setToast(null), 6500);
@@ -199,29 +227,7 @@ export default function App() {
     );
   }
   const current = navigation.find((item) => item.id === page)!;
-  if (!boot)
-    return (
-      <div className="startup-error">
-        <img src="/icon.svg" alt="NI" />
-        <h1>NI 考勤工作台</h1>
-        {startupError ? (
-          <>
-            <p role="alert">{startupError}</p>
-            <button
-              className="button primary"
-              onClick={() => location.reload()}
-            >
-              重新加载
-            </button>
-          </>
-        ) : (
-          <>
-            <LoaderCircle className="spin" />
-            <p>正在打开本地工作台…</p>
-          </>
-        )}
-      </div>
-    );
+  if (!boot) return null;
   const context = {
     boot,
     config: boot.config,
@@ -366,12 +372,14 @@ export default function App() {
                 </div>
               )}
             <fieldset className="page-content" disabled={!!busy}>
-              {page === "statistics" && <StatisticsPage />}
-              {page === "logs" && <LogsPage />}
-              {page === "people" && <PeoplePage />}
-              {page === "shifts" && <ShiftsPage />}
-              {page === "device" && <DevicePage />}
-              {page === "settings" && <SettingsPage />}
+              <Suspense fallback={<Loading />}>
+                {page === "statistics" && <StatisticsPage />}
+                {page === "logs" && <LogsPage />}
+                {page === "people" && <PeoplePage />}
+                {page === "shifts" && <ShiftsPage />}
+                {page === "device" && <DevicePage />}
+                {page === "settings" && <SettingsPage />}
+              </Suspense>
             </fieldset>
             <footer className="page-footer">
               <span>

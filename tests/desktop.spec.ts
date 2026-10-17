@@ -4,6 +4,10 @@ import { mkdir, mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import type { Bootstrap, StatisticsResult } from '../src/types';
 
+type StartupTestWindow = Window & {
+  __startupTest: { release: () => void; bootstrapCalls: number; appMounted: boolean };
+};
+
 // These tests run the real Tauri executable, Rust commands and SQLite store.
 // They never use the normal app-data directory or a real attendance device.
 test.describe.serial('真实 Tauri 桌面流程', () => {
@@ -30,12 +34,117 @@ test.describe.serial('真实 Tauri 桌面流程', () => {
     page = context.pages()[0] ?? await context.waitForEvent('page');
     page.on('pageerror', error => errors.push(error.message));
     await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+    await expect.poll(() => invoke<boolean>('plugin:window|is_visible', { label: 'main' })).toBe(true);
     expect(await invoke<string>('data_directory')).toBe(join(directory, 'data'));
     expect((await stat(join(directory, 'data', 'webview'))).isDirectory()).toBe(true);
   });
   test.afterAll(async () => {
     await browser?.close();
     app?.kill();
+  });
+  async function holdEntryScript() {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const pattern = /\/assets\/index-[^/]+\.js$/;
+    await page.route(pattern, async route => {
+      await gate;
+      await route.continue();
+    });
+    await page.reload({ waitUntil: 'commit' });
+    return {
+      release,
+      async cleanup() {
+        release();
+        await page.unroute(pattern);
+      },
+    };
+  }
+  test('脚本尚未加载时已有启动画面，准备完成后立即进入工作台', async () => {
+    const held = await holdEntryScript();
+    try {
+      await expect(page.getByRole('heading', { name: 'NI 考勤工作台', exact: true })).toBeVisible();
+      await expect(page.getByRole('status')).toHaveText('正在打开本地工作台…');
+      await expect(page.getByRole('navigation', { name: '主导航' })).toHaveCount(0);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      expect(await page.locator('.startup-orbit').evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      held.release();
+      await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+      await expect(page.locator('#startup-screen')).toHaveCount(0);
+    } finally {
+      await held.cleanup();
+    }
+  });
+  test('数据读取较慢时保持启动画面，初始化只读取一次数据', async () => {
+    const held = await holdEntryScript();
+    try {
+      await page.evaluate(() => {
+        const target = window as unknown as StartupTestWindow;
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => { release = resolve; });
+        target.__startupTest = { release, bootstrapCalls: 0, appMounted: false };
+        const original = window.fetch.bind(window);
+        window.fetch = async (input, init) => {
+          const command = new URL(input instanceof Request ? input.url : String(input)).pathname;
+          if (command === '/device_status') target.__startupTest.appMounted = true;
+          if (command === '/bootstrap') {
+            target.__startupTest.bootstrapCalls++;
+            const result = await original(input, init);
+            await gate;
+            return result;
+          }
+          return original(input, init);
+        };
+      });
+      held.release();
+      await expect.poll(() => page.evaluate(() => (window as unknown as StartupTestWindow).__startupTest.appMounted)).toBe(true);
+      await expect(page.getByRole('status')).toHaveText('正在读取本地数据…');
+      await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toHaveCount(0);
+      await page.screenshot({ path: join(directory, 'startup.png'), fullPage: true, timeout: 5000 });
+      expect(await page.evaluate(() => (window as unknown as StartupTestWindow).__startupTest.bootstrapCalls)).toBe(1);
+      await page.evaluate(() => (window as unknown as StartupTestWindow).__startupTest.release());
+      await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+      await expect(page.locator('#startup-screen')).toHaveCount(0);
+    } finally {
+      await held.cleanup();
+    }
+  });
+  test('初始化失败提供错误和重试入口，重试后可正常进入', async () => {
+    const held = await holdEntryScript();
+    try {
+      await page.evaluate(() => {
+        const original = window.fetch.bind(window);
+        window.fetch = async (input, init) => {
+          const command = new URL(input instanceof Request ? input.url : String(input)).pathname;
+          if (command === '/bootstrap') return new Response('测试：本地数据暂时无法读取', {
+            headers: { 'Content-Type': 'text/plain', 'Tauri-Response': 'error' },
+          });
+          return original(input, init);
+        };
+      });
+      held.release();
+      await expect(page.getByRole('alert')).toHaveText('测试：本地数据暂时无法读取');
+      await expect(page.getByRole('link', { name: '重新加载', exact: true })).toBeVisible();
+    } finally {
+      await held.cleanup();
+    }
+    await page.getByRole('link', { name: '重新加载', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+    await expect(page.locator('#startup-screen')).toHaveCount(0);
+  });
+  test('主界面资源加载失败时保留可恢复的启动画面', async () => {
+    const pattern = /\/assets\/main-[^/]+\.js$/;
+    await page.route(pattern, route => route.abort('failed'));
+    try {
+      await page.reload();
+      await expect(page.getByRole('alert')).toBeVisible();
+      await expect(page.getByRole('link', { name: '重新加载', exact: true })).toBeVisible();
+    } finally {
+      await page.unroute(pattern);
+    }
+    await page.getByRole('link', { name: '重新加载', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '考勤总览', exact: true })).toBeVisible();
+    await expect(page.locator('#startup-screen')).toHaveCount(0);
   });
   test('创建部门和人员，保留设备 ID 前导零', async () => {
     await page.getByRole('button', { name: '人员与部门', exact: true }).click();
