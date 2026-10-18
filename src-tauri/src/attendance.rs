@@ -63,6 +63,11 @@ pub fn calculate(
             ..Statistic::default()
         };
         let mut has_schedule = false;
+        let default_periods: Vec<_> = config
+            .default_attendance_periods
+            .iter()
+            .filter(|period| period.person_ids.contains(&person.id))
+            .collect();
         for date in range
             .start_date
             .iter_days()
@@ -75,7 +80,17 @@ pub fn calculate(
             else {
                 continue;
             };
-            if !day.morning_enabled && !day.afternoon_enabled {
+            // Explicit default attendance can activate a disabled half-day for this
+            // person/date, without changing the underlying weekly shift.
+            let mut requested_defaults = [false; 2];
+            for period in default_periods.iter().filter(|p| p.range.contains(date)) {
+                for (half, selected) in period.periods_on(date).iter().enumerate() {
+                    requested_defaults[half] |= *selected;
+                }
+            }
+            let morning_enabled = day.morning_enabled || requested_defaults[0];
+            let afternoon_enabled = day.afternoon_enabled || requested_defaults[1];
+            if !morning_enabled && !afternoon_enabled {
                 continue;
             }
             has_schedule = true;
@@ -86,7 +101,9 @@ pub fn calculate(
                 date,
                 scheduled: [None; 4],
                 punches: [None; 4],
-                exempt: [!day.morning_enabled, !day.afternoon_enabled],
+                exempt: [!morning_enabled, !afternoon_enabled],
+                default_attendance: [false; 2],
+                default_attendance_note: String::new(),
                 late: [false; 2],
                 early: [false; 2],
                 absent: [false; 2],
@@ -94,13 +111,30 @@ pub fn calculate(
                 reviewed: false,
                 note: String::new(),
             };
-            if day.morning_enabled {
-                detail.scheduled[0] = Some(clock(&day.morning_start)?);
-                detail.scheduled[1] = Some(clock(&day.morning_end)?);
-            }
-            if day.afternoon_enabled {
-                detail.scheduled[2] = Some(clock(&day.afternoon_start)?);
-                detail.scheduled[3] = Some(clock(&day.afternoon_end)?);
+            for (half, (enabled, start, end)) in [
+                (morning_enabled, &day.morning_start, &day.morning_end),
+                (afternoon_enabled, &day.afternoon_start, &day.afternoon_end),
+            ]
+            .iter()
+            .enumerate()
+            {
+                if !*enabled {
+                    continue;
+                }
+                let invalid_time =
+                    || {
+                        format!(
+                    "{} {} {}的班次起止时间无效，无法计算出勤工时，请在班次设置中填写有效时间",
+                    person.full_name, date, if half == 0 { "上午" } else { "下午" }
+                )
+                    };
+                let start = clock(start).map_err(|_| invalid_time())?;
+                let end = clock(end).map_err(|_| invalid_time())?;
+                if end <= start {
+                    return Err(invalid_time());
+                }
+                detail.scheduled[half * 2] = Some(start);
+                detail.scheduled[half * 2 + 1] = Some(end);
             }
             if let Some(times) = punches.get(&(person.device_user_id.to_lowercase(), date)) {
                 for (i, (start, end)) in windows.iter().enumerate() {
@@ -118,12 +152,33 @@ pub fn calculate(
             if let Some(review) = review_map.get(&(person.device_user_id.to_lowercase(), date)) {
                 detail.punches = review.punches;
                 detail.exempt = [
-                    review.exempt[0] || !day.morning_enabled,
-                    review.exempt[1] || !day.afternoon_enabled,
+                    review.exempt[0] || !morning_enabled,
+                    review.exempt[1] || !afternoon_enabled,
                 ];
                 detail.reviewed = true;
                 detail.note = review.note.clone();
             }
+            let mut default_notes = Vec::new();
+            for period in default_periods.iter().filter(|p| p.range.contains(date)) {
+                let mut applied = false;
+                let selected_periods = period.periods_on(date);
+                for half in 0..2 {
+                    if selected_periods[half]
+                        && detail.scheduled[half * 2].is_some()
+                        && !detail.exempt[half]
+                    {
+                        detail.default_attendance[half] = true;
+                        applied = true;
+                    }
+                }
+                if applied
+                    && !period.note.is_empty()
+                    && !default_notes.contains(&period.note.as_str())
+                {
+                    default_notes.push(period.note.as_str());
+                }
+            }
+            detail.default_attendance_note = default_notes.join("；");
             recalculate(&mut detail, config.rules.late_early_threshold_minutes);
             for i in 0..2 {
                 if detail.scheduled[i * 2].is_some() && !detail.exempt[i] {
@@ -175,7 +230,7 @@ pub fn calculate(
     }
     if logs.is_empty() {
         warnings.push(
-            "当前范围没有原始打卡记录；已排班且未免考勤的时段将计为缺勤，请确认数据完整。".into(),
+            "当前范围没有原始打卡记录；未设置默认出勤、未补卡且未免考勤的已排班时段将计为缺勤，请确认数据完整。".into(),
         );
     }
     Ok(StatisticsResult {
@@ -198,6 +253,10 @@ pub fn recalculate(detail: &mut Detail, threshold: u32) {
             continue;
         };
         if detail.exempt[i] {
+            continue;
+        }
+        if detail.default_attendance[i] {
+            detail.hours += (end - start).num_seconds().max(0) as f64 / 3600.0;
             continue;
         }
         let (first, last) = (detail.punches[i * 2], detail.punches[i * 2 + 1]);

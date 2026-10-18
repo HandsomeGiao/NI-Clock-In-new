@@ -512,6 +512,9 @@ pub fn export_statistics(
             "工时",
             "人工修正",
             "备注",
+            "上午默认出勤",
+            "下午默认出勤",
+            "默认出勤原因",
         ];
         for (col, title) in headers.iter().enumerate() {
             sheet
@@ -520,6 +523,7 @@ pub fn export_statistics(
             sheet.set_column_width(col as u16, 18).map_err(err)?;
         }
         sheet.set_column_width(12, 36).map_err(err)?;
+        sheet.set_column_width(15, 36).map_err(err)?;
         sheet.set_freeze_panes(1, 2).map_err(err)?;
         for (index, d) in details.iter().enumerate() {
             let row = index as u32 + 1;
@@ -545,6 +549,14 @@ pub fn export_statistics(
                 "否".into()
             });
             values.push(d.note.clone());
+            values.extend(d.default_attendance.iter().map(|x| {
+                if *x {
+                    "是".into()
+                } else {
+                    "否".into()
+                }
+            }));
+            values.push(d.default_attendance_note.clone());
             for (col, value) in values.iter().enumerate() {
                 sheet
                     .write_string_with_format(row, col as u16, value, &body)

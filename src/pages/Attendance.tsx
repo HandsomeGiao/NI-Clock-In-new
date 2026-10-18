@@ -30,6 +30,7 @@ import {
   RangePicker,
 } from "../components";
 import { useApp } from "../context";
+import { DefaultAttendanceEditor } from "./DefaultAttendance";
 import type {
   Detail,
   ImportSummary,
@@ -100,6 +101,7 @@ export function StatisticsPage() {
     [edit, setEdit] = useState<Detail | null>(null),
     [onlyAbnormal, setOnlyAbnormal] = useState(false);
   const [sort, setSort] = useState("department");
+  const [defaultAttendanceOpen, setDefaultAttendanceOpen] = useState(false);
   const size = 20;
   useEffect(() => {
     setResult(null);
@@ -211,6 +213,15 @@ export function StatisticsPage() {
       notify("修正已保存，统计已重新计算。");
     });
   }
+  async function recalculateDefaults() {
+    setResult(
+      await call<StatisticsResult>("calculate", {
+        range,
+        departmentIds: departments,
+      }),
+    );
+    setPage(0);
+  }
   const cards = [
     {
       label: "统计人员",
@@ -242,7 +253,7 @@ export function StatisticsPage() {
       label: "累计工时",
       value: totals ? number(totals.hours) : "—",
       unit: "小时",
-      detail: "按有效打卡与人工修正计算",
+      detail: "按打卡、人工修正与默认出勤计算",
       icon: Clock3,
       tone: "purple",
     },
@@ -272,6 +283,15 @@ export function StatisticsPage() {
         <button className="button primary" onClick={() => void calculate()}>
           <Calculator size={16} />
           计算统计
+        </button>
+        <button
+          className="button"
+          onClick={() => setDefaultAttendanceOpen(true)}
+        >
+          <CalendarCheck2 size={16} />
+          默认出勤
+          {config.defaultAttendancePeriods.length > 0 &&
+            `（${config.defaultAttendancePeriods.length}）`}
         </button>
       </div>
       <section className="panel statistics-panel">
@@ -505,6 +525,20 @@ export function StatisticsPage() {
                                     <span className="muted">—</span>
                                   ) : d.exempt[Math.floor(i / 2)] ? (
                                     <span className="muted">免考勤</span>
+                                  ) : d.defaultAttendance[Math.floor(i / 2)] ? (
+                                    <span
+                                      title={
+                                        d.defaultAttendanceNote ||
+                                        "按班次计划计入出勤与工时"
+                                      }
+                                    >
+                                      <Badge tone="blue">默认出勤</Badge>
+                                      {p && (
+                                        <small className="default-attendance-punch">
+                                          打卡 {p.slice(0, 8)}
+                                        </small>
+                                      )}
+                                    </span>
                                   ) : p ? (
                                     p.slice(0, 8)
                                   ) : (
@@ -514,6 +548,9 @@ export function StatisticsPage() {
                               ))}
                               <td>
                                 <div className="status-badges">
+                                  {d.defaultAttendance.some(Boolean) && (
+                                    <Badge tone="blue">默认出勤</Badge>
+                                  )}
                                   {d.absent.some(Boolean) && (
                                     <Badge tone="red">缺勤</Badge>
                                   )}
@@ -592,8 +629,14 @@ export function StatisticsPage() {
       </section>
       <div className="below-panel-note">
         <Info size={14} />
-        上午、下午各计半天；单侧缺卡按班次时间补全工时。人工修正优先于自动计算。
+        上午、下午各计半天；默认出勤按班次计划计工时，免考勤优先。其他时段沿用原有打卡和人工修正规则。
       </div>
+      {defaultAttendanceOpen && (
+        <DefaultAttendanceEditor
+          onClose={() => setDefaultAttendanceOpen(false)}
+          onChanged={recalculateDefaults}
+        />
+      )}
       {edit && (
         <ReviewEditor
           detail={edit}
@@ -636,6 +679,11 @@ function ReviewEditor({
         <fieldset disabled={!!busy}>
           {[0, 1].map((half) => (
             <div className="review-period" key={half}>
+              {detail.defaultAttendance[half] && (
+                <p className="default-attendance-review-note">
+                  此时段已设为默认出勤，按计划工时计算。可在「默认出勤」中修改或删除设置。
+                </p>
+              )}
               <div className="review-period-heading">
                 <strong>{half === 0 ? "上午时段" : "下午时段"}</strong>
                 <label className="checkbox-label">

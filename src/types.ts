@@ -52,6 +52,15 @@ export interface AppConfig {
   people: Person[];
   shifts: Shift[];
   query: DateRange;
+  defaultAttendancePeriods: DefaultAttendancePeriod[];
+}
+export interface DefaultAttendancePeriod {
+  id: string;
+  personIds: string[];
+  range: DateRange;
+  periods: [boolean, boolean];
+  weeklyPeriods?: [boolean, boolean][] | null;
+  note: string;
 }
 export interface Bootstrap {
   config: AppConfig;
@@ -123,6 +132,8 @@ export interface Detail extends Review {
   personName: string;
   departmentName: string;
   scheduled: (string | null)[];
+  defaultAttendance: boolean[];
+  defaultAttendanceNote: string;
   late: boolean[];
   early: boolean[];
   absent: boolean[];

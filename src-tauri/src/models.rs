@@ -20,6 +20,7 @@ pub struct AppConfig {
     pub people: Vec<Person>,
     pub shifts: Vec<Shift>,
     pub query: DateRange,
+    pub default_attendance_periods: Vec<DefaultAttendancePeriod>,
 }
 impl Default for AppConfig {
     fn default() -> Self {
@@ -35,6 +36,7 @@ impl Default for AppConfig {
             people: vec![],
             shifts: vec![Shift::default()],
             query: DateRange::default(),
+            default_attendance_periods: vec![],
         }
     }
 }
@@ -196,6 +198,52 @@ impl DateRange {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DefaultAttendancePeriod {
+    pub id: String,
+    // Stable person IDs keep these settings from being reassigned when a device ID is reused.
+    pub person_ids: Vec<String>,
+    pub range: DateRange,
+    pub periods: [bool; 2],
+    // Sunday is index 0, matching ShiftDay. Older settings apply the same periods every day.
+    #[serde(default)]
+    pub weekly_periods: Option<[[bool; 2]; 7]>,
+    #[serde(default)]
+    pub note: String,
+}
+impl DefaultAttendancePeriod {
+    pub fn periods_on(&self, date: NaiveDate) -> [bool; 2] {
+        self.weekly_periods
+            .as_ref()
+            .map(|days| days[date.weekday().num_days_from_sunday() as usize])
+            .unwrap_or(self.periods)
+    }
+    pub fn validate(&self) -> AppResult<()> {
+        self.range.validate()?;
+        let has_period = self.weekly_periods.as_ref().map_or_else(
+            || self.periods.iter().any(|enabled| *enabled),
+            |days| days.iter().flatten().any(|enabled| *enabled),
+        );
+        if self.person_ids.is_empty() || !has_period {
+            return Err("默认出勤需要至少一位人员和一个时段".into());
+        }
+        if !self
+            .range
+            .start_date
+            .iter_days()
+            .take_while(|date| *date <= self.range.end_date)
+            .any(|date| self.periods_on(date).iter().any(|enabled| *enabled))
+        {
+            return Err("日期范围内没有选中的星期时段，请调整日期或时段".into());
+        }
+        unique(self.person_ids.iter().cloned(), "默认出勤人员 ID")?;
+        if self.note.chars().count() > 1000 {
+            return Err("默认出勤原因最多 1000 个字符".into());
+        }
+        Ok(())
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogRecord {
     #[serde(default)]
     pub id: i64,
@@ -228,6 +276,10 @@ pub struct Detail {
     pub scheduled: [Option<NaiveTime>; 4],
     pub punches: [Option<NaiveTime>; 4],
     pub exempt: [bool; 2],
+    #[serde(default)]
+    pub default_attendance: [bool; 2],
+    #[serde(default)]
+    pub default_attendance_note: String,
     pub late: [bool; 2],
     pub early: [bool; 2],
     pub absent: [bool; 2],
@@ -349,6 +401,15 @@ impl AppConfig {
         unique(self.departments.iter().map(|d| d.id.clone()), "部门 ID")?;
         unique(self.shifts.iter().map(|s| s.id.clone()), "班次 ID")?;
         unique(self.people.iter().map(|p| p.id.clone()), "人员 ID")?;
+        unique(
+            self.default_attendance_periods.iter().map(|p| p.id.clone()),
+            "默认出勤设置 ID",
+        )?;
+        for period in &mut self.default_attendance_periods {
+            period.note = period.note.trim().into();
+            period.validate()?;
+            // Deleted people may remain in historical settings; they no longer participate.
+        }
         for d in &mut self.departments {
             d.name = d.name.trim().into();
         }
